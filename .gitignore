@@ -1,0 +1,13 @@
+# Build artifacts
+build/
+install/
+log/
+
+# Calibration result output directories
+lidar_base_calib_result/
+lidar_*_res/
+
+# Editor / OS
+*.swp
+*.swo
+.DS_Store

@@ -1,0 +1,49 @@
+# Unified configuration for lidar_base_calib.
+# The program reads this file at startup; every parameter lives here.
+
+bag_path: /home/chenchen/Data/0820_data/rosbag2_2026_08_20-09_29_15/
+lidar_topic: /livox/lidar_192_168_1_158
+
+time_range:              # seconds relative to the bag start
+  start_time: 0.0
+  end_time: -1.0        # < 0 means "until the end of the bag"
+
+# Initial extrinsic of the LiDAR in the (level) base frame, expressed as
+# roll/pitch/yaw (deg) and x/y/z (m). roll/pitch/Z are what gets calibrated;
+# yaw/x/y are carried through unchanged into the output.
+#
+# If `ground_plane.use_initial_for_ground_filter` is true, set `z` to the
+# approximate sensor mounting height (positive) so the coarse ground-candidate
+# filter can work; otherwise it is only used as a prior.
+initial_extrinsic:
+  roll_deg: 0.0
+  pitch_deg: 0.0
+  yaw_deg: 0.0
+  x: 0.0
+  y: 0.0
+  z: 0.0
+
+ground_plane:
+  voxel_leaf_size: 0.1            # voxel downsampling leaf size (m)
+  ransac_distance_threshold: 0.1  # RANSAC plane distance threshold (m)
+  ransac_max_iterations: 50
+  ground_band: 0.5                # coarse ground candidate band (m)
+  use_initial_for_ground_filter: false  # set true + initial_extrinsic.z for cluttered scenes
+  min_inliers: 1000               # min RANSAC inliers per frame
+  max_abs_angle_deg: 85.0         # frame-level sanity filter on roll/pitch; rejects ~90 deg
+                                  # walls but keeps steep valid mountings
+  z_range: [0.05, 10.0]           # plausible sensor height range (m)
+
+output:
+  dir: /home/chenchen/ws_excavator_nav/src/lidar_base_calib/lidar_158_res       # 结果输出目录（不存在则自动创建）
+  yaml_file: lidar_base_calib_result.yaml   # 最终标定结果
+  frames_file: lidar_base_calib_frames.txt  # 各单帧结果：timestamp_s roll pitch z
+
+# 可选：用 IMU 静止段的重力方向估计初始 roll/pitch，替代 initial_extrinsic 里手填的 0。
+# 估计出的倾角会写回 initial_extrinsic，并在 use_initial_for_ground_filter=true 时让地面粗筛更准。
+# topic 留空（""）即禁用 IMU 初始倾角估计。
+imu:
+  topic: /livox/imu_192_168_1_158   # 与 lidar_topic 对应的 IMU topic
+  stationary_angular_threshold: 0.1 # rad/s，角速度模长低于此值视为近似静止
+  accel_magnitude_band: 0.2         # 加速度模长与参考重力之差小于此值才参与平均（单位无关）
+  min_samples: 10                   # 最少参与平均的静止样本数
