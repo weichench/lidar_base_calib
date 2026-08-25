@@ -42,6 +42,8 @@ struct OutputParams
   std::string dir = "lidar_base_calib_result";         // output directory, auto-created if missing
   std::string yaml_file = "lidar_base_calib_result.yaml";  // final result (relative to dir)
   std::string frames_file = "lidar_base_calib_frames.txt"; // per-frame results (relative to dir)
+  bool save_pcd = false;       // transform calibrated clouds into the base frame and save .pcd
+  int max_pcd_frames = 5;      // max point-cloud frames to save (stationary frames preferred)
 };
 
 struct ImuParams

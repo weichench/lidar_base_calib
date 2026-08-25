@@ -1,15 +1,19 @@
+#include <algorithm>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include <rclcpp/rclcpp.hpp>
 
 #include <yaml-cpp/yaml.h>
 
 #include "lidar_base_calib/bag_reader.hpp"
+#include "lidar_base_calib/cloud_saver.hpp"
 #include "lidar_base_calib/config.hpp"
 #include "lidar_base_calib/ground_calibrator.hpp"
 #include "lidar_base_calib/imu_estimator.hpp"
@@ -17,10 +21,12 @@
 using lidar_base_calib::BagReader;
 using lidar_base_calib::CalibrationResult;
 using lidar_base_calib::Config;
+using lidar_base_calib::ExtrinsicTransform;
 using lidar_base_calib::FrameRecord;
 using lidar_base_calib::FrameResult;
 using lidar_base_calib::GroundCalibrator;
 using lidar_base_calib::ImuInitialEstimate;
+using lidar_base_calib::Interval;
 using lidar_base_calib::PointCloudFrame;
 using lidar_base_calib::Statistics;
 
@@ -129,6 +135,123 @@ void writeResultYaml(const std::string & path, const Config & config,
   file << out.c_str() << "\n";
   file.close();
   std::cout << "[main] result written to " << path << std::endl;
+}
+
+std::string topicShortName(const std::string & topic)
+{
+  const size_t pos = topic.find_last_of('/');
+  const std::string base = (pos == std::string::npos) ? topic : topic.substr(pos + 1);
+  return base.empty() ? "lidar" : base;
+}
+
+void saveCalibratedClouds(rclcpp::Node & node, const Config & config,
+                          GroundCalibrator & calibrator,
+                          const CalibrationResult & result,
+                          const std::filesystem::path & out_dir)
+{
+  const int max_frames = config.output.max_pcd_frames;
+  if (max_frames <= 0) {
+    return;
+  }
+
+  const ExtrinsicTransform T =
+    lidar_base_calib::calibratedExtrinsicTransform(result, config.initial_extrinsic);
+
+  // A stationary IMU run must last long enough to cover a whole 10 Hz lidar frame.
+  constexpr int64_t kMinStationaryDurationNs = 500000000;  // 500 ms
+  // Absorb small lidar/imu clock offsets when matching a frame to an interval.
+  constexpr int64_t kStationaryTolNs = 100000000;          // 100 ms
+
+  const std::vector<Interval> intervals =
+    lidar_base_calib::stationaryIntervals(config, kMinStationaryDurationNs);
+  const bool use_imu = !intervals.empty();
+  if (!use_imu) {
+    RCLCPP_WARN(node.get_logger(),
+      "no stationary IMU intervals found; falling back to the frames whose per-frame "
+      "fit is closest to the final calibration");
+  }
+
+  // Re-open the bag and pick the frames whose per-frame fit is closest to the
+  // final median, preferring stationary frames (when the IMU is available).
+  BagReader reader;
+  if (!reader.open(config.bag_path, config.lidar_topic,
+                   config.time_range.start_time, config.time_range.end_time)) {
+    RCLCPP_WARN(node.get_logger(), "could not re-open bag for PCD export; skipped");
+    return;
+  }
+
+  struct Candidate
+  {
+    PointCloudFrame frame;
+    double score = 0.0;
+    bool stationary = false;
+  };
+
+  auto scoreOf = [&result](const FrameResult & fr) {
+    const auto term = [](double v, const Statistics & s) {
+      double d = v - s.median;
+      if (s.std > 1e-9) {
+        d /= s.std;
+      }
+      return d * d;
+    };
+    return term(fr.roll_deg, result.roll) + term(fr.pitch_deg, result.pitch) +
+           term(fr.z, result.z);
+  };
+
+  // True when `a` ranks strictly worse than `b`: non-stationary is worse than
+  // stationary, and a larger score (farther from the median) is worse.
+  auto ranksWorse = [](const Candidate & a, const Candidate & b) {
+    if (a.stationary != b.stationary) {
+      return !a.stationary;
+    }
+    return a.score > b.score;
+  };
+
+  // Incremental top-K so we never buffer more than max_frames clouds.
+  std::vector<Candidate> best;
+  best.reserve(static_cast<size_t>(max_frames));
+
+  PointCloudFrame frame;
+  while (reader.next(frame)) {
+    const FrameResult fr = calibrator.fitFrame(frame.cloud);
+    if (!fr.valid) {
+      continue;
+    }
+    Candidate c;
+    c.frame = frame;
+    c.score = scoreOf(fr);
+    c.stationary =
+      use_imu && lidar_base_calib::inStationaryInterval(frame.stamp_ns, intervals,
+                                                        kStationaryTolNs);
+
+    if (static_cast<int>(best.size()) < max_frames) {
+      best.push_back(c);
+    } else {
+      auto worst = std::max_element(best.begin(), best.end(), ranksWorse);
+      if (ranksWorse(*worst, c)) {
+        *worst = c;
+      }
+    }
+  }
+
+  std::sort(best.begin(), best.end(), ranksWorse);
+
+  const std::string topic_short = topicShortName(config.lidar_topic);
+  for (size_t i = 0; i < best.size(); ++i) {
+    const Candidate & c = best[i];
+    const std::string name = topic_short + "_base_" + std::to_string(i) + ".pcd";
+    const std::string path = (out_dir / name).string();
+
+    pcl::PointCloud<pcl::PointXYZI>::Ptr out(new pcl::PointCloud<pcl::PointXYZI>);
+    lidar_base_calib::transformToBase(c.frame.cloud, out, T);
+    if (lidar_base_calib::saveCloudPcd(path, out)) {
+      const double stamp_s = static_cast<double>(c.frame.stamp_ns) * 1e-9;
+      RCLCPP_INFO(node.get_logger(), "saved %s (%zu points, t=%.3f s, %s)",
+                  path.c_str(), out->size(), stamp_s,
+                  c.stationary ? "stationary" : "non-stationary");
+    }
+  }
 }
 
 }  // namespace
@@ -242,6 +365,10 @@ int main(int argc, char ** argv)
 
   writeResultYaml(yaml_path, config, result, imu_est);
   writeFramesTxt(frames_path, calibrator.frames());
+
+  if (config.output.save_pcd && result.valid_count > 0) {
+    saveCalibratedClouds(*node, config, calibrator, result, out_dir);
+  }
 
   rclcpp::shutdown();
   return 0;

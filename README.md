@@ -43,6 +43,13 @@ ros2 launch lidar_base_calib lidar_base_calib.launch.py \
 - `yaml_file`：最终标定结果（中位数 / 均值 / 标准差）
 - `frames_file`：各单帧结果，四列依次为 `timestamp_s(绝对时间戳，秒) roll(°) pitch(°) Z(m)`
 
+当 `output.save_pcd` 为 `true` 时，还会额外把点云用最终标定外参转到车体系并保存 `.pcd`：
+- 最多保存 `output.max_pcd_frames` 帧，文件名形如 `<topic短名>_base_<N>.pcd`。
+- 帧选择**优先静止帧**：程序读取 `imu.topic`，用角速度模长低于阈值（`imu.stationary_angular_threshold`）
+  的连续段判定静止；再在静止帧里挑单帧结果最接近最终中位数（`(v-median)/std`）的帧。
+- 若 IMU 不可用（topic 留空 / 缺失 / 类型不符 / 无静止段），退化为在所有有效帧里挑
+  最接近最终中位数的帧。
+
 ## 配置说明
 
 见 `config/lidar_base_calib.yaml` 内注释。常用改动：

@@ -33,6 +33,7 @@ add_executable(lidar_base_calib_node
   src/bag_reader.cpp
   src/ground_calibrator.cpp
   src/imu_estimator.cpp
+  src/cloud_saver.cpp
 )
 
 ament_target_dependencies(lidar_base_calib_node

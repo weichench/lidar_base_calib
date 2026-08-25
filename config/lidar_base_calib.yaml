@@ -38,6 +38,8 @@ output:
   dir: /home/chenchen/ws_excavator_nav/src/lidar_base_calib/lidar_158_res       # 结果输出目录（不存在则自动创建）
   yaml_file: lidar_base_calib_result.yaml   # 最终标定结果
   frames_file: lidar_base_calib_frames.txt  # 各单帧结果：timestamp_s roll pitch z
+  save_pcd: true                            # 将标定后的点云转到车体系并保存 .pcd（优先静止帧）
+  max_pcd_frames: 5                         # 最多保存的点云帧数
 
 # 可选：用 IMU 静止段的重力方向估计初始 roll/pitch，替代 initial_extrinsic 里手填的 0。
 # 估计出的倾角会写回 initial_extrinsic，并在 use_initial_for_ground_filter=true 时让地面粗筛更准。

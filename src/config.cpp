@@ -84,6 +84,8 @@ bool loadConfig(const std::string & path, Config & config)
       config.output.dir = get<std::string>(out, "dir", config.output.dir);
       config.output.yaml_file = get<std::string>(out, "yaml_file", config.output.yaml_file);
       config.output.frames_file = get<std::string>(out, "frames_file", config.output.frames_file);
+      config.output.save_pcd = get<bool>(out, "save_pcd", config.output.save_pcd);
+      config.output.max_pcd_frames = get<int>(out, "max_pcd_frames", config.output.max_pcd_frames);
     }
 
     if (hasKey(root, "imu")) {
