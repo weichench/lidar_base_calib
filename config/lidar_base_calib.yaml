@@ -1,8 +1,8 @@
 # Unified configuration for lidar_base_calib.
 # The program reads this file at startup; every parameter lives here.
 
-bag_path: /home/chenchen/Data/0820_data/rosbag2_2026_08_20-09_29_15/
-lidar_topic: /livox/lidar_192_168_1_158
+bag_path: /home/chenchen/Data/2t_new/rosbag2_2026_10_24-16_24_18/
+lidar_topic: /livox/lidar_192_168_1_181
 
 time_range:              # seconds relative to the bag start
   start_time: 0.0
@@ -35,7 +35,7 @@ ground_plane:
   z_range: [0.05, 10.0]           # plausible sensor height range (m)
 
 output:
-  dir: /home/chenchen/ws_excavator_nav/src/lidar_base_calib/lidar_158_res       # 结果输出目录（不存在则自动创建）
+  dir: /home/chenchen/ws_excavator_nav/src/lidar_base_calib/2t_new_181      # 结果输出目录（不存在则自动创建）
   yaml_file: lidar_base_calib_result.yaml   # 最终标定结果
   frames_file: lidar_base_calib_frames.txt  # 各单帧结果：timestamp_s roll pitch z
   save_pcd: true                            # 将标定后的点云转到车体系并保存 .pcd（优先静止帧）
@@ -45,7 +45,7 @@ output:
 # 估计出的倾角会写回 initial_extrinsic，并在 use_initial_for_ground_filter=true 时让地面粗筛更准。
 # topic 留空（""）即禁用 IMU 初始倾角估计。
 imu:
-  topic: /livox/imu_192_168_1_158   # 与 lidar_topic 对应的 IMU topic
+  topic: /livox/imu_192_168_1_181   # 与 lidar_topic 对应的 IMU topic
   stationary_angular_threshold: 0.1 # rad/s，角速度模长低于此值视为近似静止
   accel_magnitude_band: 0.2         # 加速度模长与参考重力之差小于此值才参与平均（单位无关）
   min_samples: 10                   # 最少参与平均的静止样本数

@@ -1,19 +1,23 @@
 #include "lidar_base_calib/bag_reader.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 
 #include <livox_ros_driver2/msg/custom_msg.hpp>
+#include <pcl_conversions/pcl_conversions.h>
 #include <rclcpp/serialization.hpp>
 #include <rclcpp/serialized_message.hpp>
 #include <rosbag2_storage/serialized_bag_message.hpp>
+#include <sensor_msgs/msg/point_cloud2.hpp>
 
 namespace lidar_base_calib
 {
 
 namespace
 {
-constexpr const char * kExpectedType = "livox_ros_driver2/msg/CustomMsg";
+constexpr const char * kLivoxType = "livox_ros_driver2/msg/CustomMsg";
+constexpr const char * kPointCloud2Type = "sensor_msgs/msg/PointCloud2";
 }  // namespace
 
 bool BagReader::open(const std::string & bag_path, const std::string & topic,
@@ -51,9 +55,14 @@ bool BagReader::open(const std::string & bag_path, const std::string & topic,
     return false;
   }
 
-  if (topic_type_ != kExpectedType) {
+  if (topic_type_ == kLivoxType) {
+    format_ = CloudFormat::kLivoxCustomMsg;
+  } else if (topic_type_ == kPointCloud2Type) {
+    format_ = CloudFormat::kPointCloud2;
+  } else {
     std::cerr << "[bag_reader] topic '" << topic << "' has type '" << topic_type_
-              << "', expected '" << kExpectedType << "'." << std::endl;
+              << "', expected '" << kLivoxType << "' or '" << kPointCloud2Type << "'."
+              << std::endl;
     reader_.reset();
     return false;
   }
@@ -79,8 +88,6 @@ bool BagReader::next(PointCloudFrame & frame)
     return false;
   }
 
-  rclcpp::Serialization<livox_ros_driver2::msg::CustomMsg> serialization;
-
   while (reader_->has_next()) {
     auto bag_msg = reader_->read_next();
     if (bag_msg->topic_name != topic_) {
@@ -90,23 +97,53 @@ bool BagReader::next(PointCloudFrame & frame)
       continue;
     }
 
-    livox_ros_driver2::msg::CustomMsg msg;
-    rclcpp::SerializedMessage serialized_msg(*bag_msg->serialized_data);
-    serialization.deserialize_message(&serialized_msg, &msg);
-
     frame.stamp_ns = static_cast<int64_t>(bag_msg->time_stamp);
     frame.cloud = pcl::PointCloud<pcl::PointXYZI>::Ptr(new pcl::PointCloud<pcl::PointXYZI>);
-    frame.cloud->reserve(msg.points.size());
-    for (const auto & p : msg.points) {
-      if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z)) {
-        continue;
+
+    if (format_ == CloudFormat::kLivoxCustomMsg) {
+      rclcpp::Serialization<livox_ros_driver2::msg::CustomMsg> serialization;
+      livox_ros_driver2::msg::CustomMsg msg;
+      rclcpp::SerializedMessage serialized_msg(*bag_msg->serialized_data);
+      serialization.deserialize_message(&serialized_msg, &msg);
+
+      frame.cloud->reserve(msg.points.size());
+      for (const auto & p : msg.points) {
+        if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z)) {
+          continue;
+        }
+        pcl::PointXYZI pt;
+        pt.x = p.x;
+        pt.y = p.y;
+        pt.z = p.z;
+        pt.intensity = static_cast<float>(p.reflectivity);
+        frame.cloud->push_back(pt);
       }
-      pcl::PointXYZI pt;
-      pt.x = p.x;
-      pt.y = p.y;
-      pt.z = p.z;
-      pt.intensity = static_cast<float>(p.reflectivity);
-      frame.cloud->push_back(pt);
+    } else {
+      rclcpp::Serialization<sensor_msgs::msg::PointCloud2> serialization;
+      sensor_msgs::msg::PointCloud2 msg;
+      rclcpp::SerializedMessage serialized_msg(*bag_msg->serialized_data);
+      serialization.deserialize_message(&serialized_msg, &msg);
+
+      pcl::fromROSMsg(msg, *frame.cloud);
+
+      // A PointCloud2 without an "intensity" field leaves the value uninitialized;
+      // force it to 0 so it is well-defined.
+      const bool has_intensity = std::any_of(
+        msg.fields.begin(), msg.fields.end(),
+        [](const auto & f) { return f.name == "intensity"; });
+      if (!has_intensity) {
+        for (auto & p : frame.cloud->points) {
+          p.intensity = 0.0f;
+        }
+      }
+
+      frame.cloud->erase(
+        std::remove_if(
+          frame.cloud->begin(), frame.cloud->end(),
+          [](const pcl::PointXYZI & p) {
+            return !std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z);
+          }),
+        frame.cloud->end());
     }
 
     if (frame.cloud->empty()) {

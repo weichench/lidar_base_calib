@@ -2,7 +2,8 @@
 
 基于地平面的 Livox Mid360 激光雷达外参（roll / pitch / 高度 Z）离线标定工具。
 
-从 rosbag 中读取指定 topic 的 `livox_ros_driver2/msg/CustomMsg` 点云，逐帧用 RANSAC 拟合地平面，
+从 rosbag 中读取指定 topic 的点云（支持 `livox_ros_driver2/msg/CustomMsg` 与
+`sensor_msgs/msg/PointCloud2` 两种格式），逐帧用 RANSAC 拟合地平面，
 由平面法向量与距离得到 roll / pitch / Z，再对多帧结果做统计（中位数 + 均值 ± 标准差）得到最终标定值。
 
 ## 原理

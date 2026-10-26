@@ -23,7 +23,8 @@ class BagReader
 public:
   BagReader() = default;
 
-  /// Opens the bag and verifies the target topic exists with the expected type.
+  /// Opens the bag and verifies the target topic exists with a supported type
+  /// (livox_ros_driver2/msg/CustomMsg or sensor_msgs/msg/PointCloud2).
   /// \param start_s / end_s  seconds relative to the bag start (end_s < 0 = to end)
   bool open(const std::string & bag_path, const std::string & topic,
             double start_s, double end_s);
@@ -37,12 +38,19 @@ public:
 private:
   bool inRange(int64_t stamp_ns) const;
 
+  enum class CloudFormat
+  {
+    kLivoxCustomMsg,
+    kPointCloud2,
+  };
+
   std::unique_ptr<rosbag2_cpp::Reader> reader_;
   std::string topic_;
   double start_s_ = 0.0;
   double end_s_ = -1.0;
   int64_t bag_start_ns_ = 0;
   std::string topic_type_;
+  CloudFormat format_ = CloudFormat::kLivoxCustomMsg;
 };
 
 }  // namespace lidar_base_calib
